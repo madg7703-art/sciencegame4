@@ -1,0 +1,818 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>AR Science: Separation of Mixtures</title>
+
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600;800&family=Prompt:wght@300;400;500;700&display=swap" rel="stylesheet">
+
+    <!-- MediaPipe Face Mesh & Camera Utils -->
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js" crossorigin="anonymous"></script>
+
+    <!-- Custom CSS (Glassmorphism & Animations) -->
+    <style>
+        :root {
+            --glass-bg: rgba(255, 255, 255, 0.1);
+            --glass-border: rgba(255, 255, 255, 0.2);
+            --primary-cyan: #00f2fe;
+            --primary-purple: #4facfe;
+            --font-main: 'Prompt', sans-serif;
+            --font-num: 'Poppins', sans-serif;
+        }
+
+        body {
+            margin: 0;
+            overflow: hidden;
+            font-family: var(--font-main);
+            background-color: #0f172a; /* Fallback dark bg */
+            color: white;
+            user-select: none;
+        }
+
+        /* Glassmorphism Classes */
+        .glass-panel {
+            background: var(--glass-bg);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid var(--glass-border);
+            box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+        }
+
+        .glass-button {
+            background: rgba(255, 255, 255, 0.05);
+            backdrop-filter: blur(8px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            transition: all 0.3s ease;
+        }
+
+        .glass-button:hover, .glass-button:active {
+            background: rgba(255, 255, 255, 0.2);
+            transform: translateY(-2px);
+        }
+
+        /* Active/Highlight State */
+        .highlight-active {
+            background: rgba(0, 242, 254, 0.2) !important;
+            border: 2px solid var(--primary-cyan) !important;
+            box-shadow: 0 0 20px rgba(0, 242, 254, 0.5);
+            transform: scale(1.05);
+            z-index: 10;
+        }
+
+        /* Animations */
+        @keyframes pulse-cyan {
+            0% { box-shadow: 0 0 0 0 rgba(0, 242, 254, 0.7); }
+            70% { box-shadow: 0 0 0 15px rgba(0, 242, 254, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(0, 242, 254, 0); }
+        }
+
+        .anim-pulse {
+            animation: pulse-cyan 1.5s infinite;
+        }
+
+        @keyframes float {
+            0% { transform: translateY(0px); }
+            50% { transform: translateY(-10px); }
+            100% { transform: translateY(0px); }
+        }
+
+        .anim-float {
+            animation: float 3s ease-in-out infinite;
+        }
+
+        /* Canvas Fullscreen */
+        #bg-canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            z-index: 1;
+            object-fit: cover;
+        }
+
+        /* UI Layer on top of canvas */
+        #ui-layer {
+            position: relative;
+            z-index: 10;
+            width: 100vw;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* Hide elements */
+        .hidden-element {
+            display: none !important;
+            opacity: 0;
+            pointer-events: none;
+        }
+
+        /* Text Gradients */
+        .text-gradient {
+            background: linear-gradient(to right, var(--primary-cyan), var(--primary-purple));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        
+        .num-font { font-family: var(--font-num); }
+
+        /* Notification Popups */
+        .feedback-popup {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 3rem;
+            font-weight: bold;
+            opacity: 0;
+            transition: all 0.3s ease-out;
+            pointer-events: none;
+            z-index: 50;
+            text-shadow: 0 4px 15px rgba(0,0,0,0.5);
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Hidden Video Element for MediaPipe -->
+    <video id="input_video" class="hidden-element" autoplay playsinline></video>
+
+    <!-- Background Canvas (Video feed, AR tracking, Particles) -->
+    <canvas id="bg-canvas"></canvas>
+
+    <!-- Main UI Layer -->
+    <div id="ui-layer">
+        
+        <!-- --- START SCREEN --- -->
+        <div id="screen-start" class="absolute inset-0 flex flex-col items-center justify-center p-4 transition-opacity duration-500 z-50 glass-panel">
+            <div class="anim-float text-center mb-8">
+                <div class="text-6xl mb-4">🧪</div>
+                <h1 class="text-4xl md:text-5xl font-bold mb-2 text-gradient">Science AR</h1>
+                <h2 class="text-xl md:text-2xl text-gray-200">การแยกสารผสม</h2>
+            </div>
+            
+            <div class="bg-black/40 p-6 rounded-2xl max-w-md text-center mb-8 border border-white/10">
+                <h3 class="text-lg font-semibold text-cyan-400 mb-2">วิธีเล่น</h3>
+                <ul class="text-sm text-gray-300 text-left space-y-2 mb-4">
+                    <li>👀 <b>อนุญาตให้ใช้กล้อง</b> เพื่อใช้งานระบบ Eye Tracking</li>
+                    <li>🔄 ระบบจะสุ่มไฮไลท์วิธีแยกสารไปเรื่อยๆ</li>
+                    <li>😉 <b>กระพริบตา (Blink)</b> เมื่อกรอบไฮไลท์ตรงกับคำตอบที่ถูกต้อง!</li>
+                    <li>👆 <i>หากกล้องไม่ทำงาน สามารถใช้เมาส์คลิก/แตะหน้าจอแทนได้</i></li>
+                </ul>
+            </div>
+
+            <div id="loading-status" class="text-yellow-400 mb-4 num-font animate-pulse">กำลังโหลดโมเดล AI...</div>
+            
+            <div class="flex gap-4">
+                <button id="btn-start-ar" class="hidden-element glass-button px-8 py-3 rounded-full text-lg font-bold text-cyan-300 border-cyan-400/50 anim-pulse">
+                    เริ่มเกม (AR Mode)
+                </button>
+                <button id="btn-start-fallback" class="glass-button px-8 py-3 rounded-full text-lg font-medium text-gray-300">
+                    เล่นโหมดปกติ (Touch)
+                </button>
+            </div>
+        </div>
+
+        <!-- --- HUD (Heads Up Display) --- -->
+        <div id="hud" class="hidden-element w-full p-4 flex justify-between items-start pt-safe">
+            <!-- Left: FPS & Level -->
+            <div class="flex flex-col gap-2">
+                <div class="glass-panel px-4 py-2 rounded-xl text-sm font-semibold">
+                    ด่าน <span id="ui-level" class="text-cyan-400 num-font text-lg">1</span>
+                </div>
+                <div class="text-xs text-gray-400 num-font bg-black/30 px-2 py-1 rounded">
+                    FPS: <span id="ui-fps">0</span>
+                </div>
+                <div id="ar-status" class="text-xs text-green-400 bg-black/30 px-2 py-1 rounded flex items-center gap-1">
+                    <div class="w-2 h-2 rounded-full bg-green-400 animate-pulse"></div> Eye Tracking Active
+                </div>
+            </div>
+
+            <!-- Right: Score, Timer, Combo -->
+            <div class="flex flex-col items-end gap-2">
+                <div class="glass-panel px-6 py-2 rounded-xl text-right">
+                    <div class="text-xs text-gray-300 uppercase tracking-wider">Score</div>
+                    <div id="ui-score" class="text-2xl font-bold text-gradient num-font leading-none">0</div>
+                </div>
+                <div class="flex gap-2">
+                    <div class="glass-panel px-3 py-1 rounded-lg flex items-center gap-2">
+                        <span>⏱️</span>
+                        <span id="ui-time" class="num-font font-bold text-yellow-400">00.0</span>
+                    </div>
+                    <div id="combo-container" class="glass-panel px-3 py-1 rounded-lg flex items-center gap-1 opacity-50 transition-opacity">
+                        <span>🔥</span>
+                        <span id="ui-combo" class="num-font font-bold text-orange-400">x1</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- --- GAMEPLAY AREA --- -->
+        <div id="screen-game" class="hidden-element flex-1 flex flex-col items-center justify-center p-4 pb-12 w-full max-w-4xl mx-auto">
+            
+            <!-- Question Card -->
+            <div class="glass-panel w-full p-8 rounded-3xl text-center mb-8 relative anim-float">
+                <div class="absolute -top-6 left-1/2 transform -translate-x-1/2 bg-gradient-to-r from-cyan-500 to-blue-500 px-6 py-1 rounded-full text-sm font-bold shadow-lg">
+                    ควรใช้วิธีใดแยกสารนี้?
+                </div>
+                <!-- Image Container with transparency/fallback support -->
+                <div class="h-36 md:h-44 flex items-center justify-center my-4">
+                    <img id="question-img" src="" alt="Mixture Image" class="max-h-full max-w-full object-contain filter drop-shadow-[0_10px_15px_rgba(0,0,0,0.5)] transition-all duration-300" crossorigin="anonymous" onerror="this.src='https://placehold.co/200x200/1e293b/38bdf8?text=Science'">
+                </div>
+                <h2 id="question-text" class="text-2xl md:text-3xl font-bold">ข้าวสารผสมเปลือกข้าว</h2>
+            </div>
+
+            <!-- Choices Grid (3x2 Desktop, 2x3 Mobile) -->
+            <div id="choices-container" class="grid grid-cols-2 md:grid-cols-3 gap-4 w-full">
+                <!-- Choices will be injected here via JS -->
+            </div>
+        </div>
+
+        <!-- --- END SCREEN --- -->
+        <div id="screen-end" class="hidden-element absolute inset-0 flex flex-col items-center justify-center p-4 z-50 glass-panel bg-black/60">
+            <div class="glass-panel p-8 rounded-3xl max-w-md w-full text-center relative overflow-hidden">
+                <!-- Confetti background decoration -->
+                <div class="absolute -top-10 -left-10 text-6xl opacity-20">🎉</div>
+                <div class="absolute -bottom-10 -right-10 text-6xl opacity-20">🏆</div>
+
+                <h2 class="text-4xl font-bold text-gradient mb-2">Game Over!</h2>
+                <h3 id="end-achievement" class="text-xl text-yellow-400 font-semibold mb-6">นักเคมีฝึกหัด</h3>
+
+                <div class="space-y-4 text-left bg-black/30 p-6 rounded-2xl mb-8">
+                    <div class="flex justify-between items-center border-b border-white/10 pb-2">
+                        <span class="text-gray-300">คะแนนรวม:</span>
+                        <span id="end-score" class="text-2xl font-bold text-cyan-400 num-font">0</span>
+                    </div>
+                    <div class="flex justify-between items-center border-b border-white/10 pb-2">
+                        <span class="text-gray-300">เวลาที่ใช้:</span>
+                        <span id="end-time" class="text-xl font-bold text-white num-font">0s</span>
+                    </div>
+                    <div class="flex justify-between items-center">
+                        <span class="text-gray-300">คอมโบสูงสุด:</span>
+                        <span id="end-combo" class="text-xl font-bold text-orange-400 num-font">x0</span>
+                    </div>
+                </div>
+
+                <button id="btn-restart" class="glass-button w-full py-4 rounded-xl text-lg font-bold text-white bg-gradient-to-r from-cyan-600/50 to-blue-600/50 hover:from-cyan-500/60 hover:to-blue-500/60">
+                    เล่นอีกครั้ง (Play Again)
+                </button>
+            </div>
+        </div>
+
+        <!-- Feedback Popups (Correct/Wrong/Blink) -->
+        <div id="feedback-msg" class="feedback-popup">ถูกต้อง!</div>
+
+    </div>
+
+    <!-- ========================================== -->
+    <!--                 GAME LOGIC                 -->
+    <!-- ========================================== -->
+    <script>
+        // --- 1. CONFIG & DATA ---
+        const METHODS = [
+            { id: 0, name: "หยิบออก", icon: "🤏" },
+            { id: 1, name: "ร่อน", icon: "🧺" },
+            { id: 2, name: "ใช้แม่เหล็ก", icon: "🧲" },
+            { id: 3, name: "รินออก", icon: "🫗" },
+            { id: 4, name: "กรอง", icon: "☕" },
+            { id: 5, name: "ตกตะกอน", icon: "⏳" }
+        ];
+
+        // กำหนดให้มีเพียง 3 ข้อ พร้อมลิงค์รูปภาพแบบไม่มีพื้นหลังตามที่ระบุ
+        const LEVEL_DATA = [
+            { text: "ข้าวสารผสมเปลือกข้าว", img: "https://lh3.googleusercontent.com/d/10JtPl9KjLLKqYes4l_jwCbHMPO_ID3wr", answer: 0, desc: "ของแข็งขนาดต่างกันชัดเจน" },
+            { text: "ทรายผสมผงตะไบเหล็ก", img: "https://lh3.googleusercontent.com/d/1mkou3NFonW5BrqefuyN1HZmbXdRerv9S", answer: 2, desc: "สารหนึ่งมีสมบัติแม่เหล็ก" },
+            { text: "น้ำโคลนขุ่น", img: "https://lh3.googleusercontent.com/d/1hfQ__OlunQpobxyZG_BpjlKFU5yTNsbJ", answer: 5, desc: "ของแข็งแขวนลอยในของเหลว" }
+        ];
+
+        // --- 2. GAME STATE ---
+        const state = {
+            isPlaying: false,
+            currentLevel: 0,
+            score: 0,
+            timeStart: 0,
+            timeElapsed: 0,
+            timeLimit: 60000, // จับเวลา 60 วินาที
+            combo: 1,
+            maxCombo: 1,
+            activeHighlightIndex: 0,
+            lastHighlightTime: 0,
+            highlightSpeed: 1200, // ms per jump
+            isTrackingActive: false,
+            lastBlinkTime: 0,
+            questions: []
+        };
+
+        // --- 3. DOM ELEMENTS ---
+        const ui = {
+            screens: {
+                start: document.getElementById('screen-start'),
+                game: document.getElementById('screen-game'),
+                end: document.getElementById('screen-end'),
+                hud: document.getElementById('hud')
+            },
+            btns: {
+                startAR: document.getElementById('btn-start-ar'),
+                startTouch: document.getElementById('btn-start-fallback'),
+                restart: document.getElementById('btn-restart')
+            },
+            game: {
+                qImg: document.getElementById('question-img'),
+                qText: document.getElementById('question-text'),
+                choicesContainer: document.getElementById('choices-container'),
+                level: document.getElementById('ui-level'),
+                score: document.getElementById('ui-score'),
+                time: document.getElementById('ui-time'),
+                combo: document.getElementById('ui-combo'),
+                comboBox: document.getElementById('combo-container'),
+                fps: document.getElementById('ui-fps'),
+                arStatus: document.getElementById('ar-status')
+            },
+            feedback: document.getElementById('feedback-msg'),
+            loadingMsg: document.getElementById('loading-status'),
+            canvas: document.getElementById('bg-canvas'),
+            video: document.getElementById('input_video')
+        };
+
+        const ctx = ui.canvas.getContext('2d');
+        let animationFrameId;
+        let lastTime = performance.now();
+        let frames = 0;
+
+        // --- 4. AUDIO SYSTEM (Synthesized for zero dependencies) ---
+        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        function playSound(type) {
+            if (audioCtx.state === 'suspended') audioCtx.resume();
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+
+            const now = audioCtx.currentTime;
+            if (type === 'correct') {
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(523.25, now); // C5
+                osc.frequency.setValueAtTime(659.25, now + 0.1); // E5
+                gain.gain.setValueAtTime(0.3, now);
+                gain.gain.exponentialRampToValueAtTime(0.01, now + 0.3);
+                osc.start(now);
+                osc.stop(now + 0.3);
+            } else if (type === 'wrong') {
+                osc.type = 'sawtooth';
+                osc.frequency.setValueAtTime(200, now);
+                osc.frequency.setValueAtTime(150, now + 0.15);
+                gain.gain.setValueAtTime(0.3, now);
+                gain.gain.exponentialRampToValueAtTime(0.01, now + 0.3);
+                osc.start(now);
+                osc.stop(now + 0.3);
+            } else if (type === 'blink') {
+                osc.type = 'square';
+                osc.frequency.setValueAtTime(800, now);
+                gain.gain.setValueAtTime(0.1, now);
+                gain.gain.exponentialRampToValueAtTime(0.01, now + 0.1);
+                osc.start(now);
+                osc.stop(now + 0.1);
+            }
+        }
+
+        // --- 5. GAME LOGIC FUNCTIONS ---
+        function initGame() {
+            // Shuffle questions for replayability
+            state.questions = [...LEVEL_DATA].sort(() => Math.random() - 0.5);
+            state.currentLevel = 0;
+            state.score = 0;
+            state.combo = 1;
+            state.maxCombo = 1;
+            state.timeStart = performance.now();
+            state.timeElapsed = 0;
+            state.highlightSpeed = 1200; // Reset speed
+
+            // Reset timer UI
+            ui.game.time.classList.remove('text-red-500', 'animate-pulse');
+            ui.game.time.classList.add('text-yellow-400');
+            ui.game.time.innerText = "60.0";
+
+            buildChoicesUI();
+            updateHUD();
+            loadLevel();
+
+            ui.screens.start.classList.add('hidden-element');
+            ui.screens.end.classList.add('hidden-element');
+            ui.screens.game.classList.remove('hidden-element');
+            ui.screens.hud.classList.remove('hidden-element');
+
+            state.isPlaying = true;
+            state.lastHighlightTime = performance.now();
+        }
+
+        function buildChoicesUI() {
+            ui.game.choicesContainer.innerHTML = '';
+            METHODS.forEach((method, index) => {
+                const btn = document.createElement('div');
+                btn.className = `glass-button p-4 rounded-2xl flex flex-col items-center justify-center gap-2 cursor-pointer transition-all duration-300 choice-btn-${index}`;
+                btn.innerHTML = `
+                    <div class="text-4xl">${method.icon}</div>
+                    <div class="font-semibold text-sm md:text-base">${method.name}</div>
+                `;
+                
+                // Fallback touch/click event
+                btn.addEventListener('pointerdown', (e) => {
+                    e.preventDefault();
+                    if(state.isPlaying) handleAnswer(index);
+                });
+                
+                ui.game.choicesContainer.appendChild(btn);
+            });
+        }
+
+        function loadLevel() {
+            // เมื่อครบ 3 ข้อแล้วให้จบเกมทันที
+            if (state.currentLevel >= state.questions.length) {
+                endGame();
+                return;
+            }
+            const q = state.questions[state.currentLevel];
+            ui.game.qText.innerText = q.text;
+            ui.game.qImg.src = q.img;
+            ui.game.level.innerText = `${state.currentLevel + 1}/${state.questions.length}`;
+            
+            // Randomize starting highlight
+            state.activeHighlightIndex = Math.floor(Math.random() * METHODS.length);
+            updateHighlightUI();
+        }
+
+        function handleAnswer(selectedIndex) {
+            const q = state.questions[state.currentLevel];
+            const isCorrect = selectedIndex === q.answer;
+
+            if (isCorrect) {
+                // Correct logic
+                const points = 100 * state.combo;
+                state.score += points;
+                showFeedback(`+${points} 🎉`, '#4ade80');
+                playSound('correct');
+                
+                state.combo++;
+                if(state.combo > state.maxCombo) state.maxCombo = state.combo;
+                
+                // Increase difficulty (faster highlight)
+                state.highlightSpeed = Math.max(600, state.highlightSpeed - 100);
+
+                // Next level
+                state.currentLevel++;
+                setTimeout(loadLevel, 800); // Short delay before next level
+            } else {
+                // Wrong logic
+                state.score = Math.max(0, state.score - 50);
+                state.combo = 1;
+                showFeedback('❌ ผิด!', '#f87171');
+                playSound('wrong');
+                
+                // Flash red on the selected wrong answer
+                const btn = ui.game.choicesContainer.children[selectedIndex];
+                btn.style.backgroundColor = 'rgba(239, 68, 68, 0.4)';
+                setTimeout(() => btn.style.backgroundColor = '', 500);
+            }
+            updateHUD();
+        }
+
+        function updateHighlightUI() {
+            const btns = ui.game.choicesContainer.children;
+            for (let i = 0; i < btns.length; i++) {
+                if (i === state.activeHighlightIndex) {
+                    btns[i].classList.add('highlight-active');
+                } else {
+                    btns[i].classList.remove('highlight-active');
+                }
+            }
+        }
+
+        function updateHUD() {
+            ui.game.score.innerText = state.score;
+            ui.game.combo.innerText = `x${state.combo}`;
+            
+            if (state.combo > 1) {
+                ui.game.comboBox.style.opacity = '1';
+                ui.game.comboBox.classList.add('anim-pulse');
+            } else {
+                ui.game.comboBox.style.opacity = '0.5';
+                ui.game.comboBox.classList.remove('anim-pulse');
+            }
+        }
+
+        function showFeedback(text, color) {
+            ui.feedback.innerText = text;
+            ui.feedback.style.color = color;
+            ui.feedback.style.opacity = '1';
+            ui.feedback.style.transform = 'translate(-50%, -80%) scale(1.2)';
+            
+            setTimeout(() => {
+                ui.feedback.style.opacity = '0';
+                ui.feedback.style.transform = 'translate(-50%, -50%) scale(1)';
+            }, 800);
+        }
+
+        function endGame() {
+            state.isPlaying = false;
+            ui.screens.game.classList.add('hidden-element');
+            ui.screens.hud.classList.add('hidden-element');
+            ui.screens.end.classList.remove('hidden-element');
+
+            // Set final stats
+            document.getElementById('end-score').innerText = state.score;
+            document.getElementById('end-time').innerText = (Math.min(state.timeElapsed, state.timeLimit) / 1000).toFixed(1) + 's';
+            document.getElementById('end-combo').innerText = `x${state.maxCombo}`;
+
+            // Determine achievement
+            let title = "นักวิทยาศาสตร์หน้าใหม่";
+            let color = "text-gray-300";
+            if (state.score > 3000) { title = "อัจฉริยะนักแยกสาร!"; color = "text-yellow-400"; }
+            else if (state.score > 1500) { title = "นักเคมีฝึกหัด"; color = "text-cyan-400"; }
+            
+            const achEl = document.getElementById('end-achievement');
+            achEl.innerText = title;
+            achEl.className = `text-2xl font-bold mb-6 ${color}`;
+        }
+
+        // --- 6. AR TRACKING (MediaPipe Face Mesh) ---
+        let faceMesh;
+        let camera;
+        let latestResults = null;
+
+        function calcDistance(p1, p2) {
+            // Calculate 2D distance between landmarks
+            const dx = p1.x - p2.x;
+            const dy = p1.y - p2.y;
+            return Math.sqrt(dx * dx + dy * dy);
+        }
+
+        function onResultsFaceMesh(results) {
+            latestResults = results; // Store for drawing in main loop
+            
+            if (!state.isPlaying || !results.multiFaceLandmarks || results.multiFaceLandmarks.length === 0) return;
+
+            const landmarks = results.multiFaceLandmarks[0];
+            
+            // Blink Detection Logic (Eye Aspect Ratio / Distance approximation)
+            // Left Eye: Upper=159, Lower=145
+            // Right Eye: Upper=386, Lower=374
+            const leftDist = calcDistance(landmarks[159], landmarks[145]);
+            const rightDist = calcDistance(landmarks[386], landmarks[374]);
+            
+            // Average distance. Typically ~0.025 open, < 0.010 closed
+            const avgDist = (leftDist + rightDist) / 2;
+            const BLINK_THRESHOLD = 0.012; // Tuning parameter
+
+            if (avgDist < BLINK_THRESHOLD) {
+                const now = performance.now();
+                // Cooldown 1.5s to prevent double triggers
+                if (now - state.lastBlinkTime > 1500) {
+                    state.lastBlinkTime = now;
+                    playSound('blink');
+                    
+                    // Visual feedback for blink
+                    const canvasOverlay = document.createElement('div');
+                    canvasOverlay.className = 'absolute inset-0 bg-white/30 z-40 pointer-events-none transition-opacity duration-300';
+                    document.body.appendChild(canvasOverlay);
+                    setTimeout(() => {
+                        canvasOverlay.style.opacity = '0';
+                        setTimeout(()=>canvasOverlay.remove(), 300);
+                    }, 50);
+
+                    // Trigger Answer
+                    handleAnswer(state.activeHighlightIndex);
+                }
+            }
+        }
+
+        async function initAR() {
+            try {
+                faceMesh = new FaceMesh({locateFile: (file) => {
+                    return `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`;
+                }});
+                
+                faceMesh.setOptions({
+                    maxNumFaces: 1,
+                    refineLandmarks: true,
+                    minDetectionConfidence: 0.5,
+                    minTrackingConfidence: 0.5
+                });
+                
+                faceMesh.onResults(onResultsFaceMesh);
+
+                camera = new Camera(ui.video, {
+                    onFrame: async () => {
+                        await faceMesh.send({image: ui.video});
+                    },
+                    width: 640,
+                    height: 480,
+                    facingMode: 'user'
+                });
+                
+                await camera.start();
+                
+                state.isTrackingActive = true;
+                ui.game.arStatus.classList.remove('hidden-element');
+                ui.loadingMsg.innerText = "โหลดสำเร็จ! กล้องพร้อมใช้งาน";
+                ui.loadingMsg.classList.replace('text-yellow-400', 'text-green-400');
+                ui.loadingMsg.classList.remove('animate-pulse');
+                
+                ui.btns.startAR.classList.remove('hidden-element');
+                
+            } catch (error) {
+                console.error("AR Init Error:", error);
+                ui.loadingMsg.innerText = "ไม่สามารถเปิดกล้องได้ กรุณาใช้โหมดปกติ";
+                ui.loadingMsg.classList.replace('text-yellow-400', 'text-red-400');
+                ui.loadingMsg.classList.remove('animate-pulse');
+            }
+        }
+
+        // --- 7. MAIN RENDER LOOP (Canvas & Game Time) ---
+        // Simple Particle System
+        const particles = Array.from({length: 50}, () => ({
+            x: Math.random(), y: Math.random(),
+            s: Math.random() * 2 + 1, // size
+            vx: (Math.random() - 0.5) * 0.001,
+            vy: (Math.random() - 0.5) * 0.001 - 0.001 // drift up
+        }));
+
+        function drawLoop(timestamp) {
+            // Resize canvas to fill window
+            ui.canvas.width = window.innerWidth;
+            ui.canvas.height = window.innerHeight;
+            const w = ui.canvas.width;
+            const h = ui.canvas.height;
+
+            // 1. Draw Background & Video
+            ctx.fillStyle = '#0f172a';
+            ctx.fillRect(0, 0, w, h);
+
+            if (state.isTrackingActive && ui.video.readyState === 4) {
+                // Draw Mirrored Video
+                ctx.save();
+                ctx.translate(w, 0);
+                ctx.scale(-1, 1);
+                
+                // Cover behavior (maintain aspect ratio)
+                const vRatio = ui.video.videoWidth / ui.video.videoHeight;
+                const cRatio = w / h;
+                let drawW, drawH, drawX, drawY;
+
+                if (cRatio > vRatio) {
+                    drawW = w;
+                    drawH = w / vRatio;
+                    drawX = 0;
+                    drawY = (h - drawH) / 2;
+                } else {
+                    drawH = h;
+                    drawW = h * vRatio;
+                    drawX = (w - drawW) / 2;
+                    drawY = 0;
+                }
+                
+                // Draw faded video background
+                ctx.globalAlpha = 0.4; // Darken video to make UI pop
+                ctx.drawImage(ui.video, drawX, drawY, drawW, drawH);
+                ctx.globalAlpha = 1.0;
+
+                // 2. Draw AR Tracking Visuals (Eyes)
+                if (latestResults && latestResults.multiFaceLandmarks && latestResults.multiFaceLandmarks.length > 0) {
+                    const lm = latestResults.multiFaceLandmarks[0];
+                    
+                    // Function to map normalized coordinates to canvas
+                    const getPx = (landmark) => ({
+                        x: drawX + landmark.x * drawW,
+                        y: drawY + landmark.y * drawH
+                    });
+
+                    ctx.lineWidth = 2;
+                    ctx.strokeStyle = '#00f2fe';
+                    ctx.fillStyle = '#4facfe';
+
+                    // Highlight Eyelids
+                    const drawEyeRegion = (indices) => {
+                        ctx.beginPath();
+                        for(let i=0; i<indices.length; i++) {
+                            const p = getPx(lm[indices[i]]);
+                            if(i===0) ctx.moveTo(p.x, p.y);
+                            else ctx.lineTo(p.x, p.y);
+                        }
+                        ctx.closePath();
+                        ctx.stroke();
+                    };
+
+                    // Standard MediaPipe Eye contours
+                    const leftEyeIndices = [33, 160, 158, 133, 153, 144];
+                    const rightEyeIndices = [362, 385, 387, 263, 373, 380];
+                    drawEyeRegion(leftEyeIndices);
+                    drawEyeRegion(rightEyeIndices);
+                    
+                    // Show dots on tracking points used for calculation
+                    const calcPoints = [159, 145, 386, 374];
+                    calcPoints.forEach(idx => {
+                        const p = getPx(lm[idx]);
+                        ctx.beginPath();
+                        ctx.arc(p.x, p.y, 3, 0, 2*Math.PI);
+                        ctx.fill();
+                    });
+                }
+                ctx.restore();
+            }
+
+            // 3. Draw Particles (Science Magic Dust)
+            ctx.fillStyle = 'rgba(0, 242, 254, 0.5)';
+            particles.forEach(p => {
+                p.x += p.vx;
+                p.y += p.vy;
+                if(p.x < 0) p.x = 1; if(p.x > 1) p.x = 0;
+                if(p.y < 0) p.y = 1; if(p.y > 1) p.y = 0;
+                ctx.beginPath();
+                ctx.arc(p.x * w, p.y * h, p.s, 0, 2*Math.PI);
+                ctx.fill();
+            });
+
+            // 4. Game State Updates (Timer & Highlight)
+            if (state.isPlaying) {
+                // Update Time (Countdown)
+                state.timeElapsed = timestamp - state.timeStart;
+                let remaining = state.timeLimit - state.timeElapsed;
+                
+                if (remaining <= 0) {
+                    remaining = 0;
+                    ui.game.time.innerText = "0.0";
+                    endGame(); // หมดเวลา! จบเกม
+                } else {
+                    ui.game.time.innerText = (remaining / 1000).toFixed(1);
+                }
+
+                // เตือนเมื่อเวลาเหลือน้อยกว่าหรือเท่ากับ 10 วินาที
+                if (remaining <= 10000 && remaining > 0) {
+                    ui.game.time.classList.remove('text-yellow-400');
+                    ui.game.time.classList.add('text-red-500', 'animate-pulse');
+                }
+
+                // Auto-cycling Highlight
+                if (timestamp - state.lastHighlightTime > state.highlightSpeed) {
+                    state.activeHighlightIndex = (state.activeHighlightIndex + 1) % METHODS.length;
+                    updateHighlightUI();
+                    state.lastHighlightTime = timestamp;
+                }
+            }
+
+            // 5. FPS Counter
+            frames++;
+            if (timestamp - lastTime >= 1000) {
+                ui.game.fps.innerText = frames;
+                frames = 0;
+                lastTime = timestamp;
+            }
+
+            animationFrameId = requestAnimationFrame(drawLoop);
+        }
+
+        // --- 8. INITIALIZATION & EVENT LISTENERS ---
+        window.onload = () => {
+            // Start the visual loop immediately
+            animationFrameId = requestAnimationFrame(drawLoop);
+            
+            // Hide AR status indicator initially
+            ui.game.arStatus.classList.add('hidden-element');
+
+            // Initialize AR silently in background
+            initAR();
+
+            // Button Bindings
+            ui.btns.startAR.addEventListener('click', initGame);
+            ui.btns.startTouch.addEventListener('click', () => {
+                // Stop camera if user chooses touch mode
+                if(camera) {
+                    camera.stop();
+                    state.isTrackingActive = false;
+                    ui.game.arStatus.classList.add('hidden-element');
+                }
+                initGame();
+            });
+            ui.btns.restart.addEventListener('click', initGame);
+            
+            // Audio Context init on first interaction (Browser policy)
+            document.body.addEventListener('pointerdown', () => {
+                if(audioCtx.state === 'suspended') audioCtx.resume();
+            }, { once: true });
+        };
+        
+        // Handle window resize gracefully
+        window.addEventListener('resize', () => {
+             ui.canvas.width = window.innerWidth;
+             ui.canvas.height = window.innerHeight;
+        });
+
+    </script>
+</body>
+</html>
